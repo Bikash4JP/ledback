@@ -1,0 +1,33 @@
+### Full statement
+GET http://localhost:4000/ledgers/d5372d02-c31d-4926-9da9-4dc272d9bda8/statement
+
+### Filtered statement
+GET http://localhost:4000/ledgers/d5372d02-c31d-4926-9da9-4dc272d9bda8/statement?from=2025-12-01&to=2025-12-31
+
+### Create entry using new Cash & Rent ledgers
+POST http://localhost:4000/entries
+Content-Type: application/json
+
+{
+  "date": "2025-12-01",
+  "voucherType": "Payment",
+  "narration": "Rent for December paid in cash (NEW IDs)",
+  "lines": [
+    {
+      "debitLedgerId": "d5372d02-c31d-4926-9da9-4dc272d9bda8",
+      "creditLedgerId": "3959e21f-5f1b-4d13-8fd6-56c464bacf8b",
+      "amount": 35000,
+      "narration": "Rent line"
+    }
+  ]
+}
+
+
+### Full statement for Rent A/c
+GET http://localhost:4000/ledgers/d5372d02-c31d-4926-9da9-4dc272d9bda8/statement
+
+### Get all transactions (flat)
+GET http://localhost:4000/transactions
+
+### All ledgers
+GET http://localhost:4000/ledgers
