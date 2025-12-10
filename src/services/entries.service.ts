@@ -1,11 +1,17 @@
 import { pool } from '../db/pool';
 import { v4 as uuidv4 } from 'uuid';
 
-export type VoucherType = 'Journal' | 'Payment' | 'Receipt' | 'Contra' | 'Transfer';
+export type VoucherType =
+  | 'Journal'
+  | 'Payment'
+  | 'Receipt'
+  | 'Contra'
+  | 'Transfer';
+
 export type Transaction = {
   id: string;
   entryId: string;
-  date: string;          // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   voucherType: VoucherType;
   debitLedgerId: string;
   creditLedgerId: string;
@@ -14,16 +20,26 @@ export type Transaction = {
   createdAt: string;
 };
 
-
 export type Entry = {
   id: string;
-  entryDate: string;      // YYYY-MM-DD
+  entryDate: string; // YYYY-MM-DD
   voucherType: VoucherType;
   narration: string | null;
   createdAt: string;
 };
 
-export const getAllEntries = async (): Promise<Entry[]> => {
+// 🔹 Ab optional userEmail: agar diya to sirf us user ki entries
+export const getAllEntries = async (
+  userEmail?: string
+): Promise<Entry[]> => {
+  const params: any[] = [];
+  let where = '';
+
+  if (userEmail) {
+    params.push(userEmail);
+    where = 'WHERE user_email = $1';
+  }
+
   const result = await pool.query(
     `SELECT
        id,
@@ -32,13 +48,25 @@ export const getAllEntries = async (): Promise<Entry[]> => {
        narration,
        created_at AS "createdAt"
      FROM entries
-     ORDER BY entry_date DESC, created_at DESC`
+     ${where}
+     ORDER BY entry_date DESC, created_at DESC`,
+    params
   );
 
   return result.rows;
 };
 
-export const getAllTransactions = async (): Promise<Transaction[]> => {
+export const getAllTransactions = async (
+  userEmail?: string
+): Promise<Transaction[]> => {
+  const params: any[] = [];
+  let where = '';
+
+  if (userEmail) {
+    params.push(userEmail);
+    where = 'WHERE e.user_email = $1';
+  }
+
   const result = await pool.query(
     `SELECT
        el.id,
@@ -53,7 +81,9 @@ export const getAllTransactions = async (): Promise<Transaction[]> => {
      FROM entry_lines el
      JOIN entries e
        ON e.id = el.entry_id
-     ORDER BY e.entry_date ASC, el.created_at ASC`
+     ${where}
+     ORDER BY e.entry_date ASC, el.created_at ASC`,
+    params
   );
 
   // pg numeric -> JS number
@@ -83,7 +113,7 @@ export type EntryLineInput = {
 };
 
 export type CreateEntryInput = {
-  date: string;                // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   voucherType: VoucherType;
   narration?: string;
   lines: EntryLineInput[];
@@ -94,7 +124,11 @@ export type EntryWithLines = {
   lines: EntryLine[];
 };
 
-export const createEntry = async (input: CreateEntryInput): Promise<EntryWithLines> => {
+// 🔹 yahan bhi userEmail optional arg
+export const createEntry = async (
+  input: CreateEntryInput,
+  userEmail?: string
+): Promise<EntryWithLines> => {
   if (!input.lines || input.lines.length === 0) {
     throw new Error('At least one line is required');
   }
@@ -106,11 +140,17 @@ export const createEntry = async (input: CreateEntryInput): Promise<EntryWithLin
 
     const entryId = uuidv4();
 
-    // Insert entry header
+    // Insert entry header (with user_email)
     await client.query(
-      `INSERT INTO entries (id, entry_date, voucher_type, narration)
-       VALUES ($1, $2, $3, $4)`,
-      [entryId, input.date, input.voucherType, input.narration ?? null]
+      `INSERT INTO entries (
+         id,
+         entry_date,
+         voucher_type,
+         narration,
+         user_email
+       )
+       VALUES ($1, $2, $3, $4, $5)`,
+      [entryId, input.date, input.voucherType, input.narration ?? null, userEmail ?? null]
     );
 
     // Insert each line
@@ -125,7 +165,12 @@ export const createEntry = async (input: CreateEntryInput): Promise<EntryWithLin
       const lineId = uuidv4();
       await client.query(
         `INSERT INTO entry_lines (
-           id, entry_id, debit_ledger_id, credit_ledger_id, amount, narration
+           id,
+           entry_id,
+           debit_ledger_id,
+           credit_ledger_id,
+           amount,
+           narration
          )
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [
@@ -180,8 +225,20 @@ export const createEntry = async (input: CreateEntryInput): Promise<EntryWithLin
     client.release();
   }
 };
-export const getEntryWithLinesById = async (id: string): Promise<EntryWithLines | null> => {
-  // Fetch header
+
+export const getEntryWithLinesById = async (
+  id: string,
+  userEmail?: string
+): Promise<EntryWithLines | null> => {
+  const params: any[] = [id];
+  let userFilter = '';
+
+  if (userEmail) {
+    params.push(userEmail);
+    userFilter = 'AND user_email = $2';
+  }
+
+  // Fetch header (optionally scoped by user_email)
   const entryResult = await pool.query(
     `SELECT
        id,
@@ -190,8 +247,9 @@ export const getEntryWithLinesById = async (id: string): Promise<EntryWithLines 
        narration,
        created_at AS "createdAt"
      FROM entries
-     WHERE id = $1`,
-    [id]
+     WHERE id = $1
+       ${userFilter}`,
+    params
   );
 
   if (entryResult.rowCount === 0) {

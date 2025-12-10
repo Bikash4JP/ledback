@@ -1,3 +1,4 @@
+// src/services/ledgers.service.ts
 import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../db/pool';
 import type { VoucherType } from './entries.service';
@@ -13,6 +14,7 @@ export type Ledger = {
   createdAt: string;
   updatedAt: string;
 };
+
 export type LedgerStatementLine = {
   entryId: string;
   date: string;                 // YYYY-MM-DD
@@ -26,18 +28,36 @@ export type LedgerStatementLine = {
   balanceSide: 'Dr' | 'Cr';     // current side of balance
 };
 
-export const getAllLedgers = async (): Promise<Ledger[]> => {
+// 👇 ab ye function optional userEmail accept karega
+export const getAllLedgers = async (
+  userEmail?: string
+): Promise<Ledger[]> => {
+  const params: any[] = [];
+  let whereClause = '';
+
+  if (userEmail) {
+    // Global + user-specific dono dikhao:
+    // - global rows: user_email IS NULL
+    // - user rows:  user_email = $1
+    whereClause = 'WHERE user_email IS NULL OR user_email = $1';
+    params.push(userEmail);
+  }
+
   const result = await pool.query(
-    `SELECT
-       id,
-       name,
-       group_name AS "groupName",
-       nature,
-       is_party AS "isParty",
-       created_at AS "createdAt",
-       updated_at AS "updatedAt"
-     FROM ledgers
-     ORDER BY name ASC`
+    `
+    SELECT
+      id,
+      name,
+      group_name AS "groupName",
+      nature,
+      is_party AS "isParty",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    FROM ledgers
+    ${whereClause}
+    ORDER BY name ASC
+    `,
+    params
   );
 
   return result.rows;
@@ -50,26 +70,32 @@ type CreateLedgerInput = {
   isParty?: boolean;
 };
 
-export const createLedger = async (input: CreateLedgerInput): Promise<Ledger> => {
+export const createLedger = async (
+  input: CreateLedgerInput,
+  userEmail?: string
+): Promise<Ledger> => {
   const id = uuidv4();
   const isParty = input.isParty ?? false;
 
   const result = await pool.query(
-    `INSERT INTO ledgers (id, name, group_name, nature, is_party)
-     VALUES ($1, $2, $3, $4, $5)
-     RETURNING
-       id,
-       name,
-       group_name AS "groupName",
-       nature,
-       is_party AS "isParty",
-       created_at AS "createdAt",
-       updated_at AS "updatedAt"`,
-    [id, input.name, input.groupName, input.nature, isParty]
+    `
+    INSERT INTO ledgers (id, name, group_name, nature, is_party, user_email)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING
+      id,
+      name,
+      group_name AS "groupName",
+      nature,
+      is_party AS "isParty",
+      created_at AS "createdAt",
+      updated_at AS "updatedAt"
+    `,
+    [id, input.name, input.groupName, input.nature, isParty, userEmail ?? null]
   );
 
   return result.rows[0];
 };
+
 export const getLedgerStatement = async (
   ledgerId: string,
   from?: string,
@@ -182,4 +208,3 @@ export const getLedgerStatement = async (
 
   return withBalance;
 };
-

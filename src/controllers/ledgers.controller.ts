@@ -1,19 +1,37 @@
+// src/controllers/ledgers.controller.ts
 import { Request, Response, NextFunction } from 'express';
-import { getAllLedgers, createLedger, getLedgerStatement } from '../services/ledgers.service';
+import {
+  getAllLedgers,
+  createLedger,
+  getLedgerStatement,
+} from '../services/ledgers.service';
 
+// future ke liye helper (abhi user_email use nahi kar rahe ledgers me,
+// but rakh dete hain takki baad me easy ho)
+function getUserEmailFromReq(req: Request): string | undefined {
+  const raw = req.header('x-user-email');
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    return raw.trim();
+  }
+  return undefined;
+}
+
+// GET /ledgers
 export const listLedgers = async (
-  _req: Request,
+  req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const ledgers = await getAllLedgers();
+    const userEmail = getUserEmailFromReq(req);
+    const ledgers = await getAllLedgers(userEmail);
     res.json(ledgers);
   } catch (err) {
     next(err);
   }
 };
 
+// POST /ledgers
 export const createLedgerHandler = async (
   req: Request,
   res: Response,
@@ -21,6 +39,7 @@ export const createLedgerHandler = async (
 ) => {
   try {
     const { name, groupName, nature, isParty } = req.body;
+    const userEmail = getUserEmailFromReq(req);
 
     // Basic validation
     if (!name || !groupName || !nature) {
@@ -36,12 +55,15 @@ export const createLedgerHandler = async (
       });
     }
 
-    const ledger = await createLedger({
-      name,
-      groupName,
-      nature,
-      isParty,
-    });
+    const ledger = await createLedger(
+      {
+        name,
+        groupName,
+        nature,
+        isParty,
+      },
+      userEmail
+    );
 
     res.status(201).json(ledger);
   } catch (err) {
@@ -49,7 +71,7 @@ export const createLedgerHandler = async (
   }
 };
 
-
+// GET /ledgers/:id/statement
 export const getLedgerStatementHandler = async (
   req: Request,
   res: Response,
