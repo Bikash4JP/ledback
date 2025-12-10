@@ -6,40 +6,38 @@ import { testDbConnection } from './db/pool';
 import ledgersRouter from './routes/ledgers.routes';
 import entriesRouter from './routes/entries.routes';
 import transactionsRouter from './routes/transactions.routes';
+import authRouter from './routes/auth.routes';  // 👈 NEW
 import { ensureDefaultLedgers } from './services/ledgerSeed.service';
 
 const app = express();
 const PORT = ENV.PORT;
 
-// ----- CORS setup (for Expo web + mobile) -----
 app.use(
   cors({
     origin: [
-      'http://localhost:8081',      // web dev
-      'http://192.168.11.4:8081',  // expo web from LAN (adjust if IP change)
-      'exp://192.168.11.4:8081',   // expo go (native)
+      'http://localhost:8081',
+      'http://192.168.11.4:8081',
+      'exp://192.168.11.4:8081',
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   }),
 );
 
-// Body parser
 app.use(express.json());
 
-// (Optional) simple request logger – debug ke liye helpful:
 app.use((req, _res, next) => {
-  console.log(
-    `[${new Date().toISOString()}] ${req.method} ${req.url}`,
-  );
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
+
+// 👇 AUTH ENDPOINTS
+app.use('/auth', authRouter);
 
 // API routes
 app.use('/ledgers', ledgersRouter);
 app.use('/entries', entriesRouter);
 app.use('/transactions', transactionsRouter);
 
-// Basic health
 app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
@@ -48,7 +46,6 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// DB health check
 app.get('/health/db', async (_req, res) => {
   try {
     await testDbConnection();
@@ -59,7 +56,6 @@ app.get('/health/db', async (_req, res) => {
   }
 });
 
-// ---- startup: db check + default ledgers ----
 async function start() {
   try {
     console.log('[startup] Testing DB connection...');
