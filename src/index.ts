@@ -6,7 +6,7 @@ import { testDbConnection } from './db/pool';
 import ledgersRouter from './routes/ledgers.routes';
 import entriesRouter from './routes/entries.routes';
 import transactionsRouter from './routes/transactions.routes';
-import authRouter from './routes/auth.routes';  // 👈 NEW
+import authRouter from './routes/auth.routes';
 import { ensureDefaultLedgers } from './services/ledgerSeed.service';
 
 const app = express();
