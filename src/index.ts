@@ -10,21 +10,22 @@ import authRouter from './routes/auth.routes';
 import { ensureDefaultLedgers } from './services/ledgerSeed.service';
 
 const app = express();
-const PORT = ENV.PORT;
 
+// ✅ PORT ko number bana diya (default 4000)
+const PORT: number = ENV.PORT ? Number(ENV.PORT) : 4000;
+const HOST = '0.0.0.0';
+
+// 🔹 CORS: allow requests from anywhere (mobile app / other networks)
 app.use(
   cors({
-    origin: [
-      'http://localhost:8081',
-      'http://192.168.11.4:8081',
-      'exp://192.168.11.4:8081',
-    ],
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   }),
 );
 
 app.use(express.json());
 
+// Simple request logger
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
@@ -46,17 +47,8 @@ app.get('/health', (_req, res) => {
   });
 });
 
-app.get('/health/db', async (_req, res) => {
-  try {
-    await testDbConnection();
-    res.json({ status: 'ok', db: 'connected' });
-  } catch (err) {
-    console.error('DB health error:', err);
-    res.status(500).json({ status: 'error', db: 'failed' });
-  }
-});
-
-async function start() {
+// 🔹 Startup: DB check + seed + start server on 0.0.0.0
+(async () => {
   try {
     console.log('[startup] Testing DB connection...');
     await testDbConnection();
@@ -66,13 +58,11 @@ async function start() {
     await ensureDefaultLedgers();
     console.log('[startup] Default ledgers ready.');
 
-    app.listen(PORT, () => {
-      console.log(`ledback server running on http://localhost:${PORT}`);
+    app.listen(PORT, HOST, () => {
+      console.log(`ledback server running on http://${HOST}:${PORT}`);
     });
   } catch (err) {
-    console.error('Startup error:', err);
+    console.error('[startup] Failed to start server', err);
     process.exit(1);
   }
-}
-
-start();
+})();
