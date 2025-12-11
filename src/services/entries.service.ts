@@ -1,17 +1,13 @@
+// ledback/src/services/entries.service.ts
 import { pool } from '../db/pool';
 import { v4 as uuidv4 } from 'uuid';
 
-export type VoucherType =
-  | 'Journal'
-  | 'Payment'
-  | 'Receipt'
-  | 'Contra'
-  | 'Transfer';
+export type VoucherType = 'Journal' | 'Payment' | 'Receipt' | 'Contra' | 'Transfer';
 
 export type Transaction = {
   id: string;
   entryId: string;
-  date: string; // YYYY-MM-DD
+  date: string;          // YYYY-MM-DD
   voucherType: VoucherType;
   debitLedgerId: string;
   creditLedgerId: string;
@@ -22,23 +18,56 @@ export type Transaction = {
 
 export type Entry = {
   id: string;
-  entryDate: string; // YYYY-MM-DD
+  entryDate: string;      // YYYY-MM-DD
   voucherType: VoucherType;
   narration: string | null;
   createdAt: string;
 };
 
-// 🔹 Ab optional userEmail: agar diya to sirf us user ki entries
-export const getAllEntries = async (
-  userEmail?: string
-): Promise<Entry[]> => {
-  const params: any[] = [];
-  let where = '';
+export type EntryLine = {
+  id: string;
+  entryId: string;
+  debitLedgerId: string;
+  creditLedgerId: string;
+  amount: number;
+  narration: string | null;
+  createdAt: string;
+};
 
-  if (userEmail) {
-    params.push(userEmail);
-    where = 'WHERE user_email = $1';
+export type EntryLineInput = {
+  debitLedgerId: string;
+  creditLedgerId: string;
+  amount: number;
+  narration?: string;
+};
+
+export type CreateEntryInput = {
+  date: string;                // YYYY-MM-DD
+  voucherType: VoucherType;
+  narration?: string;
+  lines: EntryLineInput[];
+};
+
+export type EntryWithLines = {
+  entry: Entry;
+  lines: EntryLine[];
+};
+
+/**
+ * Helpers
+ */
+function requireEmail(userEmail: string | null | undefined): string {
+  if (!userEmail || !userEmail.trim()) {
+    throw new Error('User email is required for entries');
   }
+  return userEmail.trim();
+}
+
+/**
+ * Get all entries ONLY for given user_email
+ */
+export const getAllEntries = async (userEmail: string): Promise<Entry[]> => {
+  const email = requireEmail(userEmail);
 
   const result = await pool.query(
     `SELECT
@@ -48,24 +77,19 @@ export const getAllEntries = async (
        narration,
        created_at AS "createdAt"
      FROM entries
-     ${where}
+     WHERE user_email = $1
      ORDER BY entry_date DESC, created_at DESC`,
-    params
+    [email],
   );
 
   return result.rows;
 };
 
-export const getAllTransactions = async (
-  userEmail?: string
-): Promise<Transaction[]> => {
-  const params: any[] = [];
-  let where = '';
-
-  if (userEmail) {
-    params.push(userEmail);
-    where = 'WHERE e.user_email = $1';
-  }
+/**
+ * Get all transactions (joined entry_lines + entries) ONLY for given user_email
+ */
+export const getAllTransactions = async (userEmail: string): Promise<Transaction[]> => {
+  const email = requireEmail(userEmail);
 
   const result = await pool.query(
     `SELECT
@@ -81,54 +105,26 @@ export const getAllTransactions = async (
      FROM entry_lines el
      JOIN entries e
        ON e.id = el.entry_id
-     ${where}
+     WHERE e.user_email = $1
      ORDER BY e.entry_date ASC, el.created_at ASC`,
-    params
+    [email],
   );
 
-  // pg numeric -> JS number
   return result.rows.map((row) => ({
     ...row,
     amount: Number(row.amount),
   }));
 };
 
-// One DB line: one pair of debit + credit ledger
-export type EntryLine = {
-  id: string;
-  entryId: string;
-  debitLedgerId: string;
-  creditLedgerId: string;
-  amount: number;
-  narration: string | null;
-  createdAt: string;
-};
-
-// Input format for creating entry
-export type EntryLineInput = {
-  debitLedgerId: string;
-  creditLedgerId: string;
-  amount: number;
-  narration?: string;
-};
-
-export type CreateEntryInput = {
-  date: string; // YYYY-MM-DD
-  voucherType: VoucherType;
-  narration?: string;
-  lines: EntryLineInput[];
-};
-
-export type EntryWithLines = {
-  entry: Entry;
-  lines: EntryLine[];
-};
-
-// 🔹 yahan bhi userEmail optional arg
+/**
+ * Create entry + lines for this user_email only
+ */
 export const createEntry = async (
   input: CreateEntryInput,
-  userEmail?: string
+  userEmail: string,
 ): Promise<EntryWithLines> => {
+  const email = requireEmail(userEmail);
+
   if (!input.lines || input.lines.length === 0) {
     throw new Error('At least one line is required');
   }
@@ -140,7 +136,6 @@ export const createEntry = async (
 
     const entryId = uuidv4();
 
-    // Insert entry header (with user_email)
     await client.query(
       `INSERT INTO entries (
          id,
@@ -150,10 +145,9 @@ export const createEntry = async (
          user_email
        )
        VALUES ($1, $2, $3, $4, $5)`,
-      [entryId, input.date, input.voucherType, input.narration ?? null, userEmail ?? null]
+      [entryId, input.date, input.voucherType, input.narration ?? null, email],
     );
 
-    // Insert each line
     for (const line of input.lines) {
       if (!line.debitLedgerId || !line.creditLedgerId) {
         throw new Error('Each line must have debitLedgerId and creditLedgerId');
@@ -180,13 +174,12 @@ export const createEntry = async (
           line.creditLedgerId,
           line.amount,
           line.narration ?? null,
-        ]
+        ],
       );
     }
 
     await client.query('COMMIT');
 
-    // Fetch back header
     const entryResult = await client.query(
       `SELECT
          id,
@@ -195,8 +188,9 @@ export const createEntry = async (
          narration,
          created_at AS "createdAt"
        FROM entries
-       WHERE id = $1`,
-      [entryId]
+       WHERE id = $1
+         AND user_email = $2`,
+      [entryId, email],
     );
 
     const linesResult = await client.query(
@@ -211,7 +205,7 @@ export const createEntry = async (
        FROM entry_lines
        WHERE entry_id = $1
        ORDER BY created_at ASC`,
-      [entryId]
+      [entryId],
     );
 
     const entry: Entry = entryResult.rows[0];
@@ -226,19 +220,15 @@ export const createEntry = async (
   }
 };
 
+/**
+ * Get one entry + lines BY ID but only if it belongs to this user_email
+ */
 export const getEntryWithLinesById = async (
   id: string,
-  userEmail?: string
+  userEmail: string,
 ): Promise<EntryWithLines | null> => {
-  const params: any[] = [id];
-  let userFilter = '';
+  const email = requireEmail(userEmail);
 
-  if (userEmail) {
-    params.push(userEmail);
-    userFilter = 'AND user_email = $2';
-  }
-
-  // Fetch header (optionally scoped by user_email)
   const entryResult = await pool.query(
     `SELECT
        id,
@@ -248,8 +238,8 @@ export const getEntryWithLinesById = async (
        created_at AS "createdAt"
      FROM entries
      WHERE id = $1
-       ${userFilter}`,
-    params
+       AND user_email = $2`,
+    [id, email],
   );
 
   if (entryResult.rowCount === 0) {
@@ -258,7 +248,6 @@ export const getEntryWithLinesById = async (
 
   const entry: Entry = entryResult.rows[0];
 
-  // Fetch lines
   const linesResult = await pool.query(
     `SELECT
        id,
@@ -271,7 +260,7 @@ export const getEntryWithLinesById = async (
      FROM entry_lines
      WHERE entry_id = $1
      ORDER BY created_at ASC`,
-    [id]
+    [id],
   );
 
   const lines: EntryLine[] = linesResult.rows;

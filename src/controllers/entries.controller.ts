@@ -1,94 +1,82 @@
-import { Request, Response, NextFunction } from 'express';
+// ledback/src/controllers/entries.controller.ts
+import { Request, Response } from 'express';
 import {
-  getAllEntries,
   createEntry,
-  CreateEntryInput,
-  getEntryWithLinesById,
+  getAllEntries,
   getAllTransactions,
+  getEntryWithLinesById,
 } from '../services/entries.service';
 
+function getUserEmail(req: Request): string | null {
+  const raw = (req.headers['x-user-email'] as string | undefined) ?? '';
+  const trimmed = raw.trim();
+  return trimmed || null;
+}
 
-export const listEntries = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const listEntriesHandler = async (req: Request, res: Response) => {
   try {
-    const entries = await getAllEntries();
+    const email = getUserEmail(req);
+    if (!email) {
+      // not logged in → empty list
+      return res.json([]);
+    }
+    const entries = await getAllEntries(email);
     res.json(entries);
   } catch (err) {
-    next(err);
+    console.error('listEntriesHandler error', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
-export const listTransactions = async (
-  _req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+
+export const listTransactionsHandler = async (req: Request, res: Response) => {
   try {
-    const tx = await getAllTransactions();
+    const email = getUserEmail(req);
+    if (!email) {
+      return res.json([]);
+    }
+    const tx = await getAllTransactions(email);
     res.json(tx);
   } catch (err) {
-    next(err);
+    console.error('listTransactionsHandler error', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-
-export const createEntryHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const createEntryHandler = async (req: Request, res: Response) => {
   try {
-    const { date, voucherType, narration, lines } = req.body as CreateEntryInput;
-
-    if (!date || !voucherType || !Array.isArray(lines)) {
-      return res.status(400).json({
-        error: 'date, voucherType and lines are required',
-      });
+    const email = getUserEmail(req);
+    if (!email) {
+      return res.status(400).json({ error: 'Missing user email' });
     }
 
-    const allowedTypes = ['Journal', 'Payment', 'Receipt', 'Contra', 'Transfer'];
-    if (!allowedTypes.includes(voucherType)) {
-      return res.status(400).json({
-        error: `voucherType must be one of ${allowedTypes.join(', ')}`,
-      });
-    }
-
-    if (lines.length === 0) {
-      return res.status(400).json({
-        error: 'At least one line is required',
-      });
-    }
-
-    const created = await createEntry({
-      date,
-      voucherType,
-      narration,
-      lines,
-    });
+    const input = req.body;
+    const created = await createEntry(input, email);
 
     res.status(201).json(created);
-  } catch (err) {
-    next(err);
+  } catch (err: any) {
+    console.error('createEntryHandler error', err);
+    res.status(400).json({
+      error: err?.message || 'Failed to create entry',
+    });
   }
 };
-export const getEntryByIdHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+
+export const getEntryByIdHandler = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-
-    const result = await getEntryWithLinesById(id);
-
-    if (!result) {
-      return res.status(404).json({ error: 'Entry not found' });
+    const email = getUserEmail(req);
+    if (!email) {
+      return res.status(404).json({ error: 'Not found' });
     }
 
-    res.json(result);
+    const id = req.params.id;
+    const data = await getEntryWithLinesById(id, email);
+
+    if (!data) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.json(data);
   } catch (err) {
-    next(err);
+    console.error('getEntryByIdHandler error', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

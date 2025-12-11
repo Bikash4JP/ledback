@@ -1,19 +1,17 @@
+// ledback/src/routes/entries.routes.ts
 import { Router } from 'express';
 import {
-  listEntries,
+  listEntriesHandler,
   createEntryHandler,
   getEntryByIdHandler,
+  listTransactionsHandler,
 } from '../controllers/entries.controller';
 
 const router = Router();
 
-// GET /entries
-router.get('/', listEntries);
-
-// GET /entries/:id
-router.get('/:id', getEntryByIdHandler);
-
-// POST /entries
+router.get('/', listEntriesHandler);
+router.get('/transactions', listTransactionsHandler);
 router.post('/', createEntryHandler);
+router.get('/:id', getEntryByIdHandler);
 
 export default router;
