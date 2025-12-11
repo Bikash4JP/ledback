@@ -1,10 +1,10 @@
-// src/routes/transactions.routes.ts
+// ledback/src/routes/transactions.routes.ts
 import { Router } from 'express';
-import { listTransactions } from '../controllers/entries.controller';
+import { listTransactionsHandler } from '../controllers/entries.controller';
 
 const router = Router();
 
-// GET /transactions
-router.get('/', listTransactions);
+// GET /transactions  -> returns all transactions for current user_email
+router.get('/', listTransactionsHandler);
 
 export default router;
