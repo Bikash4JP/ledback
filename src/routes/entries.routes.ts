@@ -19,7 +19,10 @@ router.get('/transactions', listTransactionsHandler);
 // Create new entry (voucher)
 router.post('/', createEntryHandler);
 
-// 🔹 NEW: Delete an entry completely (entry + its lines)
+// 🔹 Delete an entry completely (entry + its lines)
+// Param id ho sakta hai:
+//  - ya to entries.id
+//  - ya entry_lines.id
 router.delete('/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
 
@@ -28,27 +31,49 @@ router.delete('/:id', async (req: Request, res: Response) => {
   }
 
   try {
-    // Check if entry exists
-    const existing = await pool.query(
+    await pool.query('BEGIN');
+
+    // 1) Pehle entries table me direct id se try karo
+    let entryId: string | null = null;
+
+    const byEntry = await pool.query(
       'SELECT id FROM entries WHERE id = $1',
       [id],
     );
 
-    if (existing.rowCount === 0) {
+    if (byEntry.rowCount > 0) {
+      // ye direct entries.id hai
+      entryId = byEntry.rows[0].id as string;
+    } else {
+      // 2) Nahi mila → shayad ye entry_lines.id hai
+      const byLine = await pool.query(
+        'SELECT entry_id FROM entry_lines WHERE id = $1',
+        [id],
+      );
+
+      if (byLine.rowCount === 0) {
+        await pool.query('ROLLBACK');
+        return res.status(404).json({ error: 'Entry not found.' });
+      }
+
+      entryId = byLine.rows[0].entry_id as string;
+    }
+
+    // Safety check
+    if (!entryId) {
+      await pool.query('ROLLBACK');
       return res.status(404).json({ error: 'Entry not found.' });
     }
 
-    await pool.query('BEGIN');
+    // 3) Pehle child lines delete
+    await pool.query('DELETE FROM entry_lines WHERE entry_id = $1', [entryId]);
 
-    // First delete child lines
-    await pool.query('DELETE FROM entry_lines WHERE entry_id = $1', [id]);
-
-    // Then delete parent entry
-    await pool.query('DELETE FROM entries WHERE id = $1', [id]);
+    // 4) Fir parent entry delete
+    await pool.query('DELETE FROM entries WHERE id = $1', [entryId]);
 
     await pool.query('COMMIT');
 
-    // 204 = No Content (success, no body)
+    // 204 = No Content
     return res.status(204).send();
   } catch (err) {
     await pool.query('ROLLBACK');
