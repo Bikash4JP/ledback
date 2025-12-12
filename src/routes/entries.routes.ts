@@ -33,16 +33,17 @@ router.delete('/:id', async (req: Request, res: Response) => {
   try {
     await pool.query('BEGIN');
 
-    // 1) Pehle entries table me direct id se try karo
     let entryId: string | null = null;
 
+    // 1) Pehle entries table me direct id se try karo
     const byEntry = await pool.query(
       'SELECT id FROM entries WHERE id = $1',
       [id],
     );
 
-    if (byEntry.rowCount > 0) {
-      // ye direct entries.id hai
+    const entryRowCount = byEntry.rowCount ?? 0;
+    if (entryRowCount > 0) {
+      // Ye direct entries.id hai
       entryId = byEntry.rows[0].id as string;
     } else {
       // 2) Nahi mila → shayad ye entry_lines.id hai
@@ -51,7 +52,8 @@ router.delete('/:id', async (req: Request, res: Response) => {
         [id],
       );
 
-      if (byLine.rowCount === 0) {
+      const lineRowCount = byLine.rowCount ?? 0;
+      if (lineRowCount === 0) {
         await pool.query('ROLLBACK');
         return res.status(404).json({ error: 'Entry not found.' });
       }
@@ -59,7 +61,6 @@ router.delete('/:id', async (req: Request, res: Response) => {
       entryId = byLine.rows[0].entry_id as string;
     }
 
-    // Safety check
     if (!entryId) {
       await pool.query('ROLLBACK');
       return res.status(404).json({ error: 'Entry not found.' });
