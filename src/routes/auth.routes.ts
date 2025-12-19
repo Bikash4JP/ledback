@@ -1,30 +1,28 @@
 // src/routes/auth.routes.ts
 import { Router } from 'express';
 import {
-  loginHandler,
   signupHandler,
   verifyEmailHandler,
-  requestLoginOtpHandler,
-  verifyLoginOtpHandler,
-  requestPasswordResetHandler,
-  verifyPasswordResetOtpHandler,
+  loginStartHandler,
+  loginVerifyOtpHandler,
+  passwordResetRequestHandler,
+  passwordResetVerifyOtpHandler,
 } from '../controllers/auth.controller';
 
 const router = Router();
 
-// Basic auth
+// Signup
 router.post('/signup', signupHandler);
-router.post('/login', loginHandler);
 
-// Email verification link
+// Email verification
 router.get('/verify-email', verifyEmailHandler);
 
-// Login OTP (2nd step)
-router.post('/request-login-otp', requestLoginOtpHandler);
-router.post('/verify-login-otp', verifyLoginOtpHandler);
+// Login (2-step: password -> OTP)
+router.post('/login/start', loginStartHandler);
+router.post('/login/verify-otp', loginVerifyOtpHandler);
 
-// Password reset via OTP
-router.post('/request-password-reset', requestPasswordResetHandler);
-router.post('/verify-password-reset-otp', verifyPasswordResetOtpHandler);
+// Password reset (request + verify)
+router.post('/password-reset/request', passwordResetRequestHandler);
+router.post('/password-reset/verify', passwordResetVerifyOtpHandler);
 
 export default router;
