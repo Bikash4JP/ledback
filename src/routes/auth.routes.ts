@@ -2,27 +2,27 @@
 import { Router } from 'express';
 import {
   signupHandler,
-  verifyEmailHandler,
   loginStartHandler,
   loginVerifyOtpHandler,
-  passwordResetRequestHandler,
-  passwordResetVerifyOtpHandler,
+  requestPasswordResetHandler,
+  verifyPasswordResetOtpHandler,
 } from '../controllers/auth.controller';
 
 const router = Router();
 
-// Signup
+// Sign up (create account)
 router.post('/signup', signupHandler);
 
-// Email verification
-router.get('/verify-email', verifyEmailHandler);
-
-// Login (2-step: password -> OTP)
+// Login step 1: check password + send OTP email
 router.post('/login/start', loginStartHandler);
+
+// Login step 2: verify OTP + return user
 router.post('/login/verify-otp', loginVerifyOtpHandler);
 
-// Password reset (request + verify)
-router.post('/password-reset/request', passwordResetRequestHandler);
-router.post('/password-reset/verify', passwordResetVerifyOtpHandler);
+// Password reset: send OTP to email
+router.post('/password-reset/request', requestPasswordResetHandler);
+
+// Password reset: verify OTP + set new password
+router.post('/password-reset/verify', verifyPasswordResetOtpHandler);
 
 export default router;
