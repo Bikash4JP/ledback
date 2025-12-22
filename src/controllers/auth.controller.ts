@@ -1,147 +1,96 @@
 // src/controllers/auth.controller.ts
 import { Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
-import { pool } from '../db/pool';
 
-// DB me hum ye columns assume kar rahe hain:
-// users(id, name, business_name, email, username, password_hash, ...)
+/**
+ * 🚨 NOTE:
+ * Ye "soft auth" hai – abhi ke liye koi DB use nahi kar rahe,
+ * sirf user object bana ke return karenge so that mobile app works.
+ * Later jab chaho proper users table + password hash add kar sakte ho.
+ */
 
-type DbUserRow = {
-  id: string;
-  email: string;
-  username: string;
-  password_hash: string;
-  name?: string | null;
-  business_name?: string | null;
-};
-
-type AuthUser = {
+export type AuthUser = {
   id: string;
   username: string;
   email: string;
-  fullName: string | null;
+  fullName: string;
   businessName: string | null;
+  phone: string | null;
+  createdAt: string;
 };
 
-function mapRowToAuthUser(row: DbUserRow): AuthUser {
+// Helper: common user object builder
+function buildUser(
+  username: string,
+  email: string,
+  fullName?: string,
+  businessName?: string | null,
+): AuthUser {
+  const base = username || email.split('@')[0] || 'user';
   return {
-    id: row.id,
-    username: row.username,
-    email: row.email,
-    fullName: row.name ?? null,
-    businessName: row.business_name ?? null,
+    id: `demo-${base}`,
+    username: base,
+    email,
+    fullName: fullName || base,
+    businessName: businessName ?? null,
+    phone: null,
+    createdAt: new Date().toISOString(),
   };
 }
 
-// POST /auth/login
-// body: { usernameOrEmail: string, password: string }
-export const loginHandler = async (req: Request, res: Response) => {
-  try {
-    const { usernameOrEmail, password } = req.body ?? {};
-
-    if (!usernameOrEmail || !password) {
-      return res.status(400).json({
-        error: 'usernameOrEmail and password are required',
-      });
-    }
-
-    const identifier = String(usernameOrEmail).trim();
-
-    const result = await pool.query<DbUserRow>(
-      `
-      SELECT
-        id,
-        email,
-        username,
-        password_hash,
-        name,
-        business_name
-      FROM users
-      WHERE email = $1 OR username = $1
-      LIMIT 1
-      `,
-      [identifier],
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const row = result.rows[0];
-
-    const ok = await bcrypt.compare(String(password), row.password_hash);
-    if (!ok) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const user = mapRowToAuthUser(row);
-
-    // frontend ko yahi shape chahiye: { id, username, email, fullName, businessName }
-    return res.json(user);
-  } catch (err) {
-    console.error('loginHandler error', err);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
 // POST /auth/signup
-// body: { name, businessName, email, username, password }
-export const signupHandler = async (req: Request, res: Response) => {
+export async function signupHandler(req: Request, res: Response) {
   try {
-    const { name, businessName, email, username, password } = req.body ?? {};
+    const { name, email, username, businessName } = req.body ?? {};
 
-    if (!name || !email || !username || !password) {
-      return res.status(400).json({
-        error: 'name, email, username and password are required',
-      });
-    }
-
-    const trimmedEmail = String(email).trim();
-    const trimmedUsername = String(username).trim();
-
-    // check existing
-    const exists = await pool.query(
-      `
-      SELECT id
-      FROM users
-      WHERE email = $1 OR username = $2
-      `,
-      [trimmedEmail, trimmedUsername],
-    );
-
-    if (exists.rowCount && exists.rowCount > 0) {
+    if (!name || !email || !username) {
       return res
-        .status(409)
-        .json({ error: 'Email or username already registered' });
+        .status(400)
+        .json({ error: 'name, email, username are required.' });
     }
 
-    const passwordHash = await bcrypt.hash(String(password), 10);
-
-    const inserted = await pool.query<DbUserRow>(
-      `
-      INSERT INTO users (name, business_name, email, username, password_hash)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING
-        id,
-        email,
-        username,
-        password_hash,
-        name,
-        business_name
-      `,
-      [
-        String(name).trim(),
-        businessName ? String(businessName).trim() : null,
-        trimmedEmail,
-        trimmedUsername,
-        passwordHash,
-      ],
-    );
-
-    const user = mapRowToAuthUser(inserted.rows[0]);
+    const user = buildUser(username, email, name, businessName);
+    // 🔹 Abhi ke liye DB me save nahi kar rahe, sirf client ko return
     return res.status(201).json(user);
   } catch (err) {
     console.error('signupHandler error', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
-};
+}
+
+// POST /auth/login
+export async function loginHandler(req: Request, res: Response) {
+  try {
+    const { usernameOrEmail } = req.body ?? {};
+
+    if (!usernameOrEmail) {
+      return res
+        .status(400)
+        .json({ error: 'usernameOrEmail is required.' });
+    }
+
+    const raw = String(usernameOrEmail).trim();
+
+    let username: string;
+    let email: string;
+
+    if (raw.includes('@')) {
+      // e.g. bikash@example.com
+      email = raw;
+      username = raw.split('@')[0] || raw;
+    } else {
+      // e.g. "bikash" → fake email
+      username = raw;
+      email = `${raw}@demo.local`;
+    }
+
+    const user = buildUser(username, email, username, null);
+
+    // ✅ Password check skip (soft auth)
+    // Later yahan par real password hash check add kar sakte ho
+
+    return res.json(user);
+  } catch (err) {
+    console.error('loginHandler error', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
