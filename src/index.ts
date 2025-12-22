@@ -7,6 +7,7 @@ import ledgersRouter from './routes/ledgers.routes';
 import entriesRouter from './routes/entries.routes';
 import transactionsRouter from './routes/transactions.routes';
 import authRouter from './routes/auth.routes';
+import debugEmailRouter from './routes/debugEmail.routes'; // 👈 NEW
 import { ensureDefaultLedgers } from './services/ledgerSeed.service';
 
 const app = express();
@@ -33,6 +34,9 @@ app.use((req, _res, next) => {
 
 // 👇 AUTH ENDPOINTS
 app.use('/auth', authRouter);
+
+// 👇 DEBUG EMAIL ENDPOINTS (for testing SMTP)
+app.use('/debug-email', debugEmailRouter);
 
 // API routes
 app.use('/ledgers', ledgersRouter);

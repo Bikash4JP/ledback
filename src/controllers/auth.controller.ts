@@ -1,81 +1,87 @@
-// src/controllers/auth.controller.ts
+// ledback/src/controllers/entries.controller.ts
 import { Request, Response } from 'express';
-import { loginUser, signupUser } from '../services/auth.service';
+import {
+  createEntry,
+  getAllEntries,
+  getAllTransactions,
+  getEntryWithLinesById,
+} from '../services/entries.service';
 
-export const signupHandler = async (req: Request, res: Response) => {
+function getUserEmail(req: Request): string | null {
+  const raw = (req.headers['x-user-email'] as string | undefined) ?? '';
+  const trimmed = raw.trim();
+  return trimmed || null;
+}
+
+export const listEntriesHandler = async (req: Request, res: Response) => {
   try {
-    const {
-      name,
-      businessName,
-      email,
-      username,
-      password,
-      phone,
-    } = req.body ?? {};
-
-    if (!name || !email || !username || !password) {
-      return res.status(400).json({
-        error: 'Missing required fields',
-      });
+    const email = getUserEmail(req);
+    if (!email) {
+      // not logged in → empty list
+      return res.json([]);
     }
-
-    try {
-      const user = await signupUser({
-        name,
-        businessName,
-        email,
-        username,
-        password,
-        phone,
-      });
-
-      return res.status(201).json(user);
-    } catch (err: any) {
-      // Unique violation
-      if (err.code === '23505') {
-        return res.status(409).json({
-          error: 'Email or username already in use',
-        });
-      }
-      if (err.message === 'MISSING_FIELDS') {
-        return res.status(400).json({ error: 'Missing required fields' });
-      }
-      console.error('signup error:', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
+    const entries = await getAllEntries(email);
+    res.json(entries);
   } catch (err) {
-    console.error('signup outer error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('listEntriesHandler error', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export const loginHandler = async (req: Request, res: Response) => {
+export const listTransactionsHandler = async (req: Request, res: Response) => {
   try {
-    const { usernameOrEmail, password } = req.body ?? {};
-
-    if (!usernameOrEmail || !password) {
-      return res.status(400).json({
-        error: 'Missing username/email or password',
-      });
+    const email = getUserEmail(req);
+    if (!email) {
+      return res.json([]);
     }
-
-    try {
-      const user = await loginUser({ usernameOrEmail, password });
-      return res.status(200).json(user);
-    } catch (err: any) {
-      if (err.message === 'INVALID_CREDENTIALS') {
-        return res.status(401).json({
-          error: 'Invalid username/email or password',
-        });
-      }
-      if (err.message === 'MISSING_FIELDS') {
-        return res.status(400).json({ error: 'Missing fields' });
-      }
-      console.error('login error:', err);
-      return res.status(500).json({ error: 'Internal server error' });
-    }
+    const tx = await getAllTransactions(email);
+    res.json(tx);
   } catch (err) {
-    console.error('login outer error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    console.error('listTransactionsHandler error', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
+};
+
+export const createEntryHandler = async (req: Request, res: Response) => {
+  try {
+    const email = getUserEmail(req);
+    if (!email) {
+      return res.status(400).json({ error: 'Missing user email' });
+    }
+
+    const input = req.body;
+    const created = await createEntry(input, email);
+
+    res.status(201).json(created);
+  } catch (err: any) {
+    console.error('createEntryHandler error', err);
+    res.status(400).json({
+      error: err?.message || 'Failed to create entry',
+    });
+  }
+};
+
+export const getEntryByIdHandler = async (req: Request, res: Response) => {
+  try {
+    const email = getUserEmail(req);
+    if (!email) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const id = req.params.id;
+    const data = await getEntryWithLinesById(id, email);
+
+    if (!data) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.json(data);
+  } catch (err) {
+    console.error('getEntryByIdHandler error', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const signupHandler = (req: import('express').Request, res: import('express').Response) => {
+  // Implement your signup logic here
+  res.send('Signup handler');
 };
