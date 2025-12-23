@@ -9,6 +9,8 @@ import transactionsRouter from './routes/transactions.routes';
 import authRouter from './routes/auth.routes';
 import debugEmailRouter from './routes/debugEmail.routes'; // 👈 NEW
 import { ensureDefaultLedgers } from './services/ledgerSeed.service';
+import syncRouter from "./routes/sync.routes";
+
 
 const app = express();
 
@@ -31,6 +33,8 @@ app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
+
+app.use("/sync", syncRouter);
 
 // 👇 AUTH ENDPOINTS
 app.use('/auth', authRouter);
