@@ -14,8 +14,18 @@ function getUserEmailFromReq(req: Request): string | undefined {
   return undefined;
 }
 
+// small helper: clean strings safely
+function cleanText(v: any): string {
+  if (typeof v !== 'string') return '';
+  return v.trim();
+}
+
 // GET /ledgers
-export const listLedgers = async (req: Request, res: Response, next: NextFunction) => {
+export const listLedgers = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
     const userEmail = getUserEmailFromReq(req);
     const ledgers = await getAllLedgers(userEmail);
@@ -26,39 +36,71 @@ export const listLedgers = async (req: Request, res: Response, next: NextFunctio
 };
 
 // POST /ledgers
-export const createLedgerHandler = async (req: Request, res: Response, next: NextFunction) => {
+export const createLedgerHandler = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
-    const {
-      name,
-      groupName,
-      nature,
-      isParty,
-
-      // new
-      isGroup,
-
-      // ✅ accept both
-      categoryLedgerId,
-      parentLedgerId,
-    } = req.body;
-
     const userEmail = getUserEmailFromReq(req);
 
+    // ✅ Create should always be user-specific
     if (!userEmail) {
       return res.status(401).json({ error: 'Missing x-user-email header' });
     }
 
+    // Accept both frontend keys (old+new)
+    const rawName = req.body?.name;
+    const rawGroupName = req.body?.groupName;
+    const rawNature = req.body?.nature;
+    const rawIsParty = req.body?.isParty;
+    const rawIsGroup = req.body?.isGroup;
+
+    const rawCategoryLedgerId = req.body?.categoryLedgerId;
+    const rawParentLedgerId = req.body?.parentLedgerId;
+
+    // ✅ sanitize
+    const name = cleanText(rawName);
+    const groupName = cleanText(rawGroupName);
+    const nature = cleanText(rawNature) as any;
+
+    // ✅ normalize booleans
+    const isParty = !!rawIsParty;
+    const isGroup = !!rawIsGroup;
+
+    // ✅ normalize parent id (string or null)
+    const parent =
+      (typeof rawCategoryLedgerId === 'string' && rawCategoryLedgerId.trim() !== ''
+        ? rawCategoryLedgerId.trim()
+        : typeof rawParentLedgerId === 'string' && rawParentLedgerId.trim() !== ''
+          ? rawParentLedgerId.trim()
+          : null) as string | null;
+
+    // ✅ DEBUG (temporary, but very useful)
+    console.log('[LEDGER_CREATE]', {
+      userEmail,
+      name,
+      groupName,
+      nature,
+      isParty,
+      isGroup,
+      categoryLedgerId: parent,
+      rawBody: req.body,
+    });
+
+    // Basic validation
     if (!name || !groupName || !nature) {
-      return res.status(400).json({ error: 'name, groupName and nature are required' });
+      return res.status(400).json({
+        error: 'name, groupName and nature are required',
+      });
     }
 
     const allowedNatures = ['Asset', 'Liability', 'Income', 'Expense'];
     if (!allowedNatures.includes(nature)) {
-      return res.status(400).json({ error: `nature must be one of ${allowedNatures.join(', ')}` });
+      return res.status(400).json({
+        error: `nature must be one of ${allowedNatures.join(', ')}`,
+      });
     }
-
-    // ✅ normalize parent
-    const parent = (categoryLedgerId ?? parentLedgerId ?? null) as string | null;
 
     const ledger = await createLedger(
       {
@@ -66,20 +108,26 @@ export const createLedgerHandler = async (req: Request, res: Response, next: Nex
         groupName,
         nature,
         isParty,
-        isGroup: !!isGroup,
+
+        // ✅ NEW
+        isGroup,
         categoryLedgerId: parent,
       },
-      userEmail
+      userEmail,
     );
 
-    res.status(201).json(ledger);
+    return res.status(201).json(ledger);
   } catch (err) {
     next(err);
   }
 };
 
 // GET /ledgers/:id/statement
-export const getLedgerStatementHandler = async (req: Request, res: Response, next: NextFunction) => {
+export const getLedgerStatementHandler = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
   try {
     const { id } = req.params;
     const { from, to } = req.query;
