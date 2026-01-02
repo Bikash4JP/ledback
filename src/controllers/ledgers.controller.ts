@@ -1,4 +1,4 @@
-//ledback/src/controllers/ledgers.controller.ts
+// ledback/src/controllers/ledgers.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import {
   getAllLedgers,
@@ -15,11 +15,7 @@ function getUserEmailFromReq(req: Request): string | undefined {
 }
 
 // GET /ledgers
-export const listLedgers = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const listLedgers = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userEmail = getUserEmailFromReq(req);
     const ledgers = await getAllLedgers(userEmail);
@@ -30,11 +26,7 @@ export const listLedgers = async (
 };
 
 // POST /ledgers
-export const createLedgerHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const createLedgerHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const {
       name,
@@ -42,33 +34,31 @@ export const createLedgerHandler = async (
       nature,
       isParty,
 
-      // ✅ NEW: group + parent support
+      // new
       isGroup,
+
+      // ✅ accept both
       categoryLedgerId,
+      parentLedgerId,
     } = req.body;
 
     const userEmail = getUserEmailFromReq(req);
 
-    // ✅ Create should always be user-specific (otherwise NULL user_email bucket)
     if (!userEmail) {
-      return res.status(401).json({
-        error: 'Missing x-user-email header',
-      });
+      return res.status(401).json({ error: 'Missing x-user-email header' });
     }
 
-    // Basic validation
     if (!name || !groupName || !nature) {
-      return res.status(400).json({
-        error: 'name, groupName and nature are required',
-      });
+      return res.status(400).json({ error: 'name, groupName and nature are required' });
     }
 
     const allowedNatures = ['Asset', 'Liability', 'Income', 'Expense'];
     if (!allowedNatures.includes(nature)) {
-      return res.status(400).json({
-        error: `nature must be one of ${allowedNatures.join(', ')}`,
-      });
+      return res.status(400).json({ error: `nature must be one of ${allowedNatures.join(', ')}` });
     }
+
+    // ✅ normalize parent
+    const parent = (categoryLedgerId ?? parentLedgerId ?? null) as string | null;
 
     const ledger = await createLedger(
       {
@@ -76,10 +66,8 @@ export const createLedgerHandler = async (
         groupName,
         nature,
         isParty,
-
-        // ✅ NEW
         isGroup: !!isGroup,
-        categoryLedgerId: categoryLedgerId ?? null,
+        categoryLedgerId: parent,
       },
       userEmail
     );
@@ -91,11 +79,7 @@ export const createLedgerHandler = async (
 };
 
 // GET /ledgers/:id/statement
-export const getLedgerStatementHandler = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const getLedgerStatementHandler = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { from, to } = req.query;
