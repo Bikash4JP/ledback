@@ -20,14 +20,14 @@ export type Ledger = {
 
 export type LedgerStatementLine = {
   entryId: string;
-  date: string;                 // YYYY-MM-DD
+  date: string; // YYYY-MM-DD
   voucherType: VoucherType;
   narration: string | null;
   otherLedgerId: string;
   otherLedgerName: string;
-  debit: string;                // numeric as string
+  debit: string; // numeric as string
   credit: string;
-  runningBalance: string;       // abs(balance) as string
+  runningBalance: string; // abs(balance) as string
   balanceSide: 'Dr' | 'Cr';
 };
 
@@ -37,7 +37,8 @@ export const getAllLedgers = async (userEmail?: string): Promise<Ledger[]> => {
 
   if (userEmail) {
     // Global + user-specific
-    whereClause = 'WHERE deleted_at IS NULL AND (user_email IS NULL OR user_email = $1)';
+    whereClause =
+      'WHERE deleted_at IS NULL AND (user_email IS NULL OR user_email = $1)';
     params.push(userEmail);
   } else {
     // If no user => only global (safe)
@@ -80,16 +81,55 @@ export const createLedger = async (
   input: CreateLedgerInput,
   userEmail?: string
 ): Promise<Ledger> => {
+  // We make userEmail mandatory for create (avoid NULL bucket confusion)
+  if (!userEmail) {
+    const e: any = new Error('Missing x-user-email header');
+    e.status = 401;
+    e.code = 'MISSING_USER_EMAIL';
+    throw e;
+  }
+
   const id = uuidv4();
 
-  const isParty = input.isParty ?? false;
-  const isGroup = input.isGroup ?? false;
+  const name = (input.name ?? '').trim();
+  const groupName = (input.groupName ?? '').trim();
+
+  if (!name || !groupName || !input.nature) {
+    const e: any = new Error('name, groupName and nature are required');
+    e.status = 400;
+    e.code = 'VALIDATION_ERROR';
+    throw e;
+  }
+
+  const isGroup = !!input.isGroup;
+  // Group ledger ko party na banao (safe)
+  const isParty = isGroup ? false : input.isParty ?? false;
 
   let categoryLedgerId: string | null = input.categoryLedgerId ?? null;
 
   // Safety: cannot point to itself
   if (categoryLedgerId && categoryLedgerId === id) {
     categoryLedgerId = null;
+  }
+
+  // Optional extra safety: parent exists (global or same user)
+  if (categoryLedgerId) {
+    const parentRes = await pool.query(
+      `
+      SELECT id FROM ledgers
+      WHERE id = $1
+        AND deleted_at IS NULL
+        AND (user_email IS NULL OR user_email = $2)
+      `,
+      [categoryLedgerId, userEmail]
+    );
+
+    if (parentRes.rowCount === 0) {
+      const e: any = new Error('Invalid parent ledger (categoryLedgerId).');
+      e.status = 400;
+      e.code = 'INVALID_PARENT';
+      throw e;
+    }
   }
 
   const result = await pool.query(
@@ -111,16 +151,7 @@ export const createLedger = async (
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `,
-    [
-      id,
-      input.name,
-      input.groupName,
-      input.nature,
-      isParty,
-      isGroup,
-      categoryLedgerId,
-      userEmail ?? null,
-    ]
+    [id, name, groupName, input.nature, isParty, isGroup, categoryLedgerId, userEmail]
   );
 
   return result.rows[0];
@@ -131,10 +162,9 @@ export const getLedgerStatement = async (
   from?: string,
   to?: string
 ): Promise<LedgerStatementLine[]> => {
-  const ledgerRes = await pool.query(
-    `SELECT nature FROM ledgers WHERE id = $1`,
-    [ledgerId]
-  );
+  const ledgerRes = await pool.query(`SELECT nature FROM ledgers WHERE id = $1`, [
+    ledgerId,
+  ]);
 
   if (ledgerRes.rowCount === 0) return [];
 
@@ -203,10 +233,16 @@ export const getLedgerStatement = async (
     const abs = Math.abs(running);
     const side: 'Dr' | 'Cr' =
       abs === 0
-        ? (isDebitNature ? 'Dr' : 'Cr')
+        ? isDebitNature
+          ? 'Dr'
+          : 'Cr'
         : running >= 0
-        ? (isDebitNature ? 'Dr' : 'Cr')
-        : (isDebitNature ? 'Cr' : 'Dr');
+        ? isDebitNature
+          ? 'Dr'
+          : 'Cr'
+        : isDebitNature
+        ? 'Cr'
+        : 'Dr';
 
     return {
       entryId: row.entryId,
