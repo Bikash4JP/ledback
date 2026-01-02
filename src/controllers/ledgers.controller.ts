@@ -1,4 +1,3 @@
-// src/controllers/ledgers.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import {
   getAllLedgers,
@@ -6,8 +5,6 @@ import {
   getLedgerStatement,
 } from '../services/ledgers.service';
 
-// future ke liye helper (abhi user_email use nahi kar rahe ledgers me,
-// but rakh dete hain takki baad me easy ho)
 function getUserEmailFromReq(req: Request): string | undefined {
   const raw = req.header('x-user-email');
   if (typeof raw === 'string' && raw.trim() !== '') {
@@ -38,8 +35,25 @@ export const createLedgerHandler = async (
   next: NextFunction
 ) => {
   try {
-    const { name, groupName, nature, isParty } = req.body;
+    const {
+      name,
+      groupName,
+      nature,
+      isParty,
+
+      // ✅ NEW: group + parent support
+      isGroup,
+      categoryLedgerId,
+    } = req.body;
+
     const userEmail = getUserEmailFromReq(req);
+
+    // ✅ Create should always be user-specific (otherwise NULL user_email bucket)
+    if (!userEmail) {
+      return res.status(401).json({
+        error: 'Missing x-user-email header',
+      });
+    }
 
     // Basic validation
     if (!name || !groupName || !nature) {
@@ -61,6 +75,10 @@ export const createLedgerHandler = async (
         groupName,
         nature,
         isParty,
+
+        // ✅ NEW
+        isGroup: !!isGroup,
+        categoryLedgerId: categoryLedgerId ?? null,
       },
       userEmail
     );

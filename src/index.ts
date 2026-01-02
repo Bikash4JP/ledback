@@ -7,18 +7,18 @@ import ledgersRouter from './routes/ledgers.routes';
 import entriesRouter from './routes/entries.routes';
 import transactionsRouter from './routes/transactions.routes';
 import authRouter from './routes/auth.routes';
-import debugEmailRouter from './routes/debugEmail.routes'; // 👈 NEW
+import debugEmailRouter from './routes/debugEmail.routes';
 import { ensureDefaultLedgers } from './services/ledgerSeed.service';
 import syncRouter from "./routes/sync.routes";
 
+// ✅ NEW
+import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
 
-// ✅ PORT ko number bana diya (default 4000)
 const PORT: number = ENV.PORT ? Number(ENV.PORT) : 4000;
 const HOST = '0.0.0.0';
 
-// 🔹 CORS: allow requests from anywhere (mobile app / other networks)
 app.use(
   cors({
     origin: '*',
@@ -28,21 +28,15 @@ app.use(
 
 app.use(express.json());
 
-// Simple request logger
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
 app.use("/sync", syncRouter);
-
-// 👇 AUTH ENDPOINTS
 app.use('/auth', authRouter);
-
-// 👇 DEBUG EMAIL ENDPOINTS (for testing SMTP)
 app.use('/debug-email', debugEmailRouter);
 
-// API routes
 app.use('/ledgers', ledgersRouter);
 app.use('/entries', entriesRouter);
 app.use('/transactions', transactionsRouter);
@@ -55,7 +49,9 @@ app.get('/health', (_req, res) => {
   });
 });
 
-// 🔹 Startup: DB check + seed + start server on 0.0.0.0
+// ✅ MUST be last
+app.use(errorHandler);
+
 (async () => {
   try {
     console.log('[startup] Testing DB connection...');

@@ -1,4 +1,3 @@
-// src/services/ledgers.service.ts
 import { v4 as uuidv4 } from 'uuid';
 import { pool } from '../db/pool';
 import type { VoucherType } from './entries.service';
@@ -11,6 +10,10 @@ export type Ledger = {
   groupName: string;
   nature: LedgerNature;
   isParty: boolean;
+
+  isGroup: boolean;
+  categoryLedgerId: string | null;
+
   createdAt: string;
   updatedAt: string;
 };
@@ -22,25 +25,23 @@ export type LedgerStatementLine = {
   narration: string | null;
   otherLedgerId: string;
   otherLedgerName: string;
-  debit: string;                // numeric(18,2) as string from pg
+  debit: string;                // numeric as string
   credit: string;
-  runningBalance: string;       // cumulative balance as string
-  balanceSide: 'Dr' | 'Cr';     // current side of balance
+  runningBalance: string;       // abs(balance) as string
+  balanceSide: 'Dr' | 'Cr';
 };
 
-// 👇 ab ye function optional userEmail accept karega
-export const getAllLedgers = async (
-  userEmail?: string
-): Promise<Ledger[]> => {
+export const getAllLedgers = async (userEmail?: string): Promise<Ledger[]> => {
   const params: any[] = [];
   let whereClause = '';
 
   if (userEmail) {
-    // Global + user-specific dono dikhao:
-    // - global rows: user_email IS NULL
-    // - user rows:  user_email = $1
-    whereClause = 'WHERE user_email IS NULL OR user_email = $1';
+    // Global + user-specific
+    whereClause = 'WHERE deleted_at IS NULL AND (user_email IS NULL OR user_email = $1)';
     params.push(userEmail);
+  } else {
+    // If no user => only global (safe)
+    whereClause = 'WHERE deleted_at IS NULL AND user_email IS NULL';
   }
 
   const result = await pool.query(
@@ -51,11 +52,13 @@ export const getAllLedgers = async (
       group_name AS "groupName",
       nature,
       is_party AS "isParty",
+      is_group AS "isGroup",
+      category_ledger_id AS "categoryLedgerId",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     FROM ledgers
     ${whereClause}
-    ORDER BY name ASC
+    ORDER BY is_group DESC, name ASC
     `,
     params
   );
@@ -68,6 +71,9 @@ type CreateLedgerInput = {
   groupName: string;
   nature: LedgerNature;
   isParty?: boolean;
+
+  isGroup?: boolean;
+  categoryLedgerId?: string | null;
 };
 
 export const createLedger = async (
@@ -75,22 +81,46 @@ export const createLedger = async (
   userEmail?: string
 ): Promise<Ledger> => {
   const id = uuidv4();
+
   const isParty = input.isParty ?? false;
+  const isGroup = input.isGroup ?? false;
+
+  let categoryLedgerId: string | null = input.categoryLedgerId ?? null;
+
+  // Safety: cannot point to itself
+  if (categoryLedgerId && categoryLedgerId === id) {
+    categoryLedgerId = null;
+  }
 
   const result = await pool.query(
     `
-    INSERT INTO ledgers (id, name, group_name, nature, is_party, user_email)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO ledgers (
+      id, name, group_name, nature, is_party,
+      is_group, category_ledger_id,
+      user_email
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING
       id,
       name,
       group_name AS "groupName",
       nature,
       is_party AS "isParty",
+      is_group AS "isGroup",
+      category_ledger_id AS "categoryLedgerId",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `,
-    [id, input.name, input.groupName, input.nature, isParty, userEmail ?? null]
+    [
+      id,
+      input.name,
+      input.groupName,
+      input.nature,
+      isParty,
+      isGroup,
+      categoryLedgerId,
+      userEmail ?? null,
+    ]
   );
 
   return result.rows[0];
@@ -101,20 +131,15 @@ export const getLedgerStatement = async (
   from?: string,
   to?: string
 ): Promise<LedgerStatementLine[]> => {
-  // 1) Get ledger nature (Asset/Liability/Income/Expense)
   const ledgerRes = await pool.query(
     `SELECT nature FROM ledgers WHERE id = $1`,
     [ledgerId]
   );
 
-  if (ledgerRes.rowCount === 0) {
-    // unknown ledger -> no rows
-    return [];
-  }
+  if (ledgerRes.rowCount === 0) return [];
 
   const nature = ledgerRes.rows[0].nature as LedgerNature;
 
-  // 2) Build date filters
   const params: any[] = [ledgerId];
   let dateFilter = '';
 
@@ -122,13 +147,11 @@ export const getLedgerStatement = async (
     params.push(from);
     dateFilter += ` AND e.entry_date >= $${params.length}`;
   }
-
   if (to) {
     params.push(to);
     dateFilter += ` AND e.entry_date <= $${params.length}`;
   }
 
-  // 3) Fetch raw movements
   const result = await pool.query(
     `
     SELECT
@@ -150,13 +173,11 @@ export const getLedgerStatement = async (
         ELSE 0
       END AS "credit"
     FROM entry_lines el
-    JOIN entries e
-      ON e.id = el.entry_id
-    JOIN ledgers ol
-      ON ol.id = CASE
-        WHEN el.debit_ledger_id = $1 THEN el.credit_ledger_id
-        ELSE el.debit_ledger_id
-      END
+    JOIN entries e ON e.id = el.entry_id
+    JOIN ledgers ol ON ol.id = CASE
+      WHEN el.debit_ledger_id = $1 THEN el.credit_ledger_id
+      ELSE el.debit_ledger_id
+    END
     WHERE (el.debit_ledger_id = $1 OR el.credit_ledger_id = $1)
       ${dateFilter}
     ORDER BY e.entry_date ASC, e.created_at ASC, el.created_at ASC
@@ -166,18 +187,13 @@ export const getLedgerStatement = async (
 
   const rows = result.rows;
 
-  // 4) Compute running balance per row
-  let running = 0; // internal numeric running balance
-
+  let running = 0;
   const isDebitNature = nature === 'Asset' || nature === 'Expense';
 
   const withBalance: LedgerStatementLine[] = rows.map((row: any) => {
     const debitNum = Number(row.debit);
     const creditNum = Number(row.credit);
 
-    // Movement direction depends on nature:
-    // For Asset/Expense: Dr increases, Cr decreases
-    // For Liability/Income: Cr increases, Dr decreases
     if (isDebitNature) {
       running += debitNum - creditNum;
     } else {
@@ -187,7 +203,7 @@ export const getLedgerStatement = async (
     const abs = Math.abs(running);
     const side: 'Dr' | 'Cr' =
       abs === 0
-        ? (isDebitNature ? 'Dr' : 'Cr') // zero balance default side
+        ? (isDebitNature ? 'Dr' : 'Cr')
         : running >= 0
         ? (isDebitNature ? 'Dr' : 'Cr')
         : (isDebitNature ? 'Cr' : 'Dr');
